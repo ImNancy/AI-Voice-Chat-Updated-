@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+jinja2
+requests
+numpy
+pydantic
+pyttsx3
+sounddevice
+speechrecognition
+markdown
+flask
+flask-cors
+groq

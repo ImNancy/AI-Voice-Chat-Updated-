@@ -7,7 +7,21 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from groq import Groq
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI, Request
+
+
+app = FastAPI()
+
+# ✅ Mount the static directory
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# ✅ Setup templates
+templates = Jinja2Templates(directory="templates")
+
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

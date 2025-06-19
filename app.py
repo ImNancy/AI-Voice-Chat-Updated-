@@ -1,67 +1,79 @@
 import os
 import logging
-from flask import Flask, render_template, request, jsonify
-from flask_cors import CORS
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 from groq import Groq
-import json
-
+from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
-# Create Flask app
-app = Flask(__name__)
-app.secret_key = os.environ.get("SESSION_SECRET", "dev-secret-key")
-CORS(app)
+# Load .env file
+load_dotenv()
+
+
+# Create FastAPI app
+app = FastAPI(title="Voice Chat AI", description="AI voice chat application with Groq integration")
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Templates
+templates = Jinja2Templates(directory="templates")
 
 # Initialize Groq client
 groq_api_key = os.environ.get("GROQ_API_KEY", "").strip()
 if not groq_api_key:
-    # Use the hardcoded key as fallback
-    groq_api_key = "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"
-
-try:
-    groq_client = Groq(api_key=groq_api_key)
-    app.logger.info("Groq client initialized successfully")
-except Exception as e:
-    app.logger.error(f"Failed to initialize Groq client: {str(e)}")
+    logging.error("GROQ_API_KEY is not set or is empty")
     groq_client = None
+else:
+    groq_client = Groq(api_key=groq_api_key)
 
-@app.route('/')
-def index():
+# Pydantic models
+class ChatMessage(BaseModel):
+    message: str
+
+class ChatResponse(BaseModel):
+    response: str
+    success: bool
+
+class ErrorResponse(BaseModel):
+    error: str
+    success: bool
+
+class HealthResponse(BaseModel):
+    status: str
+    groq_configured: bool
+
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
     """Serve the main chat interface"""
-    return render_template('index.html')
+    return templates.TemplateResponse("index.html", {"request": request})
 
-@app.route('/api/chat', methods=['POST'])
-def chat():
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(chat_message: ChatMessage):
     """Handle chat requests and return AI responses"""
-    app.logger.info("Chat endpoint called")
-    
     try:
-        # Get and validate request data
-        if not request.is_json:
-            app.logger.error("Request is not JSON")
-            return jsonify({'error': 'Request must be JSON', 'success': False}), 400
-            
-        data = request.get_json()
-        app.logger.info(f"Received data: {data}")
+        user_message = chat_message.message.strip()
         
-        if not data:
-            app.logger.error("No JSON data received")
-            return jsonify({'error': 'No data received', 'success': False}), 400
-            
-        user_message = data.get('message', '').strip()
-        app.logger.info(f"User message: {user_message}")
-
         if not user_message:
-            app.logger.error("Empty message received")
-            return jsonify({'error': 'Message is required', 'success': False}), 400
-
+            raise HTTPException(status_code=400, detail="Message is required")
+        
         # Check if Groq client is available
         if not groq_client:
-            app.logger.error("Groq client is not available")
-            return jsonify({'error': 'Groq API service not available', 'success': False}), 500
-
-        app.logger.info("Calling Groq API...")
+            raise HTTPException(status_code=500, detail="Groq API key not configured or invalid")
         
         # Create chat completion with Groq
         try:
@@ -78,41 +90,44 @@ def chat():
                 ],
                 model="llama3-8b-8192",
                 temperature=0.7,
-                max_tokens=150
+                max_tokens=150,
+                timeout=30
             )
-
-            ai_response = chat_completion.choices[0].message.content
-            app.logger.info(f"AI response generated successfully: {ai_response[:100]}...")
-
-            response_data = {
-                'response': ai_response,
-                'success': True
-            }
-            app.logger.info(f"Returning response: {response_data}")
             
-            return jsonify(response_data)
+            ai_response = chat_completion.choices[0].message.content or "Sorry, I couldn't generate a response."
             
         except Exception as groq_error:
-            app.logger.error(f"Groq API error: {str(groq_error)}", exc_info=True)
-            return jsonify({
-                'error': f'AI service error: {str(groq_error)}',
-                'success': False
-            }), 500
-
+            logging.error(f"Groq API error: {str(groq_error)}")
+            if "503" in str(groq_error) or "Service Unavailable" in str(groq_error):
+                raise HTTPException(
+                    status_code=503, 
+                    detail="AI service is temporarily unavailable. Please try again in a moment."
+                )
+            else:
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"AI service error: {str(groq_error)}"
+                )
+        
+        return ChatResponse(response=ai_response, success=True)
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        app.logger.error(f"Unexpected error in chat endpoint: {str(e)}", exc_info=True)
-        return jsonify({
-            'error': f'Server error: {str(e)}',
-            'success': False
-        }), 500
+        logging.error(f"Error in chat endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to get AI response: {str(e)}"
+        )
 
-@app.route('/api/health', methods=['GET'])
-def health_check():
+@app.get("/api/health", response_model=HealthResponse)
+async def health_check():
     """Health check endpoint"""
-    return jsonify({
-        'status': 'healthy',
-        'groq_configured': bool(groq_client)
-    })
+    return HealthResponse(
+        status="healthy",
+        groq_configured=bool(groq_client)
+    )
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=5000)

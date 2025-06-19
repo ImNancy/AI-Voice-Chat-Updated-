@@ -7,12 +7,9 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from groq import Groq
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-
-# Load .env file
-load_dotenv()
 
 
 # Create FastAPI app

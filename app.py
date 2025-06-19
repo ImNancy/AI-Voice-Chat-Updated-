@@ -7,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from groq import Groq
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

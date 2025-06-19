@@ -1,13 +1,6 @@
 fastapi
 uvicorn
-jinja2
 requests
-numpy
+jinja2
+python-multipart
 pydantic
-pyttsx3
-sounddevice
-speechrecognition
-markdown
-flask
-flask-cors
-groq
